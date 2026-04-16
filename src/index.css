@@ -4,9 +4,50 @@
 
 @layer base {
   body {
-    @apply font-sans;
+    @apply font-sans text-gray-800;
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif;
+  }
+}
+
+@layer components {
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background-color: #d62828;
+    box-shadow: 0 0 0 0 rgba(214, 40, 40, 0.55);
+    animation: live-ping 1.5s ease-out infinite;
+  }
+
+  .live-count {
+    animation: live-rise 0.45s ease-out;
+  }
+}
+
+@keyframes live-ping {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(214, 40, 40, 0.55);
+  }
+  70% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 9px rgba(214, 40, 40, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(214, 40, 40, 0);
+  }
+}
+
+@keyframes live-rise {
+  0% {
+    opacity: 0.8;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
