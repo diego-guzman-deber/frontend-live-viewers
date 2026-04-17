@@ -3,8 +3,9 @@ export const API_BASE_URL = "http://localhost:3000/api/v1";
 
 export const API_ENDPOINTS = {
   TIKTOK_CACHE: `${API_BASE_URL}/viewers-cache/tiktok`,
-  TIKTOK_CACHE_STREAM: `${API_BASE_URL}/viewers-cache/tiktok/stream`,
   YOUTUBE_CACHE: `${API_BASE_URL}/viewers-cache/youtube`,
-  YOUTUBE_CACHE_STREAM: `${API_BASE_URL}/viewers-cache/youtube/stream`,
+  FACEBOOK_CACHE: `${API_BASE_URL}/viewers-cache/facebook`,
+  ALL_CACHE_STREAM: `${API_BASE_URL}/viewers-cache/stream`,
   TIKTOK_LIVE: `${API_BASE_URL}/tiktok/live`,
+  HISTORY_AVERAGES: `${API_BASE_URL}/viewers-history/averages`,
 };

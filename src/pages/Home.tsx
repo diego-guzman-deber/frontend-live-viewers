@@ -3,7 +3,6 @@ import UserCard from "../components/UserCard";
 import { API_ENDPOINTS } from "../config";
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -22,13 +21,14 @@ interface ChartPoint {
   time: string;
   tiktok: number;
   youtube: number;
+  facebook: number;
 }
 
 interface StreamCardUser extends User {
-  platform: "TikTok" | "YouTube";
+  platform: "TikTok" | "YouTube" | "Facebook";
 }
 
-const USE_MOCK_DATA = true;
+const USE_MOCK_DATA = false;
 
 const MOCK_TIKTOK_USERS: User[] = [
   { username: "jhonnyplatacaba", viewerCount: 3299, isLive: true },
@@ -41,6 +41,35 @@ const MOCK_YOUTUBE_USERS: User[] = [
   { username: "BoliviaLiveNews", viewerCount: 1730, isLive: true },
   { username: "DebateEnVivo", viewerCount: 1255, isLive: true },
 ];
+
+const MOCK_FACEBOOK_USERS: User[] = [
+  { username: "ElDeberNoticias", viewerCount: 4010, isLive: true },
+  { username: "DebersLive", viewerCount: 2460, isLive: true },
+  { username: "CoberturaCentral", viewerCount: 1695, isLive: true },
+];
+
+const PLATFORM_META = {
+  YouTube: {
+    chartKey: "youtube" as const,
+    accent: "#b91c1c",
+    tint: "#fdeced",
+    badge: "YT",
+  },
+  TikTok: {
+    chartKey: "tiktok" as const,
+    accent: "#1f5d3a",
+    tint: "#ecf4ef",
+    badge: "TT",
+  },
+  Facebook: {
+    chartKey: "facebook" as const,
+    accent: "#1d4ed8",
+    tint: "#e9f0ff",
+    badge: "FB",
+  },
+} as const;
+
+type PlatformName = keyof typeof PLATFORM_META;
 
 const formatShortViewers = (value: number) =>
   new Intl.NumberFormat("es-BO", {
@@ -58,13 +87,17 @@ const getSnapshotTime = () =>
 export default function Home() {
   const [tiktokUsers, setTiktokUsers] = useState<User[]>([]);
   const [youtubeUsers, setYoutubeUsers] = useState<User[]>([]);
+  const [facebookUsers, setFacebookUsers] = useState<User[]>([]);
   const [chartHistory, setChartHistory] = useState<ChartPoint[]>([]);
+  const [chartChannelNames, setChartChannelNames] = useState<Record<string, string[]>>({
+    youtube: [],
+    tiktok: [],
+    facebook: [],
+  });
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const tiktokEventSourceRef = useRef<EventSource | null>(null);
-  const youtubeEventSourceRef = useRef<EventSource | null>(null);
-  const tiktokReconnectTimeoutRef = useRef<number | null>(null);
-  const youtubeReconnectTimeoutRef = useRef<number | null>(null);
+  const unifiedEventSourceRef = useRef<EventSource | null>(null);
+  const unifiedReconnectTimeoutRef = useRef<number | null>(null);
 
   const withTimeout = useCallback(<T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
@@ -200,9 +233,10 @@ export default function Home() {
     setDashboardLoading(true);
 
     try {
-      const [tiktokResult, youtubeResult] = await Promise.allSettled([
+      const [tiktokResult, youtubeResult, facebookResult] = await Promise.allSettled([
         withTimeout(fetchPlatformUsers(API_ENDPOINTS.TIKTOK_CACHE), 8000),
         withTimeout(fetchPlatformUsers(API_ENDPOINTS.YOUTUBE_CACHE), 8000),
+        withTimeout(fetchPlatformUsers(API_ENDPOINTS.FACEBOOK_CACHE), 8000),
       ]);
 
       if (tiktokResult.status === "fulfilled") {
@@ -213,10 +247,15 @@ export default function Home() {
         setYoutubeUsers(youtubeResult.value);
       }
 
-      if (tiktokResult.status === "rejected" || youtubeResult.status === "rejected") {
+      if (facebookResult.status === "fulfilled") {
+        setFacebookUsers(facebookResult.value);
+      }
+
+      if (tiktokResult.status === "rejected" || youtubeResult.status === "rejected" || facebookResult.status === "rejected") {
         console.warn("Fallo parcial en carga inicial (se mantiene con SSE):", {
           tiktok: tiktokResult,
           youtube: youtubeResult,
+          facebook: facebookResult,
         });
       }
 
@@ -231,51 +270,56 @@ export default function Home() {
     }
   }, [fetchPlatformUsers, withTimeout]);
 
-  const connectStream = useCallback(
-    function connectStreamInternal(
-      streamUrl: string,
-      eventSourceRef: React.MutableRefObject<EventSource | null>,
-      reconnectRef: React.MutableRefObject<number | null>,
-      setUsers: React.Dispatch<React.SetStateAction<User[]>>,
-      label: string
-    ) {
-    try {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+  const connectUnifiedStream = useCallback(
+    function connectUnifiedStreamInternal() {
+      try {
+        if (unifiedEventSourceRef.current) {
+          unifiedEventSourceRef.current.close();
+        }
+
+        const eventSource = new EventSource(API_ENDPOINTS.ALL_CACHE_STREAM);
+        unifiedEventSourceRef.current = eventSource;
+
+        eventSource.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === "all_viewers_update" && payload.data) {
+              if (Array.isArray(payload.data.tiktok)) {
+                setTiktokUsers(normalizeUsers(payload.data.tiktok));
+              }
+              if (Array.isArray(payload.data.youtube)) {
+                setYoutubeUsers(normalizeUsers(payload.data.youtube));
+              }
+              if (Array.isArray(payload.data.facebook)) {
+                setFacebookUsers(normalizeUsers(payload.data.facebook));
+              }
+            } else {
+              applySsePayload(payload, setTiktokUsers);
+            }
+          } catch (err) {
+            console.error(`Error procesando SSE:`, err);
+          }
+        };
+
+        eventSource.onerror = (error) => {
+          console.error(`Error en SSE unificado:`, error);
+          eventSource.close();
+          unifiedEventSourceRef.current = null;
+
+          if (unifiedReconnectTimeoutRef.current !== null) {
+            window.clearTimeout(unifiedReconnectTimeoutRef.current);
+          }
+
+          unifiedReconnectTimeoutRef.current = window.setTimeout(() => {
+            console.log(`Intentando reconectar SSE unificado...`);
+            connectUnifiedStreamInternal();
+          }, 5000);
+        };
+      } catch (err) {
+        console.error(`Error al conectar SSE unificado:`, err);
       }
-
-      const eventSource = new EventSource(streamUrl);
-      eventSourceRef.current = eventSource;
-
-      eventSource.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          applySsePayload(payload, setUsers);
-        } catch (err) {
-          console.error(`Error procesando SSE (${label}):`, err);
-        }
-      };
-
-      eventSource.onerror = (error) => {
-        console.error(`Error en SSE (${label}):`, error);
-        eventSource.close();
-        eventSourceRef.current = null;
-
-        if (reconnectRef.current !== null) {
-          window.clearTimeout(reconnectRef.current);
-        }
-
-        // Reconectar automáticamente después de 5 segundos
-        reconnectRef.current = window.setTimeout(() => {
-          console.log(`Intentando reconectar SSE (${label})...`);
-          connectStreamInternal(streamUrl, eventSourceRef, reconnectRef, setUsers, label);
-        }, 5000);
-      };
-    } catch (err) {
-      console.error(`Error al conectar SSE (${label}):`, err);
-    }
-  },
-    [applySsePayload]
+    },
+    [normalizeUsers, applySsePayload]
   );
 
   const evolveMockUsers = useCallback((users: User[], min = 80, max = 260): User[] => {
@@ -299,6 +343,7 @@ export default function Home() {
       const bootTimeout = window.setTimeout(() => {
         setTiktokUsers(MOCK_TIKTOK_USERS);
         setYoutubeUsers(MOCK_YOUTUBE_USERS);
+        setFacebookUsers(MOCK_FACEBOOK_USERS);
         setError(null);
         setDashboardLoading(false);
       }, 850);
@@ -306,6 +351,7 @@ export default function Home() {
       const mockTicker = window.setInterval(() => {
         setTiktokUsers((prev) => evolveMockUsers(prev));
         setYoutubeUsers((prev) => evolveMockUsers(prev));
+        setFacebookUsers((prev) => evolveMockUsers(prev));
       }, 3800);
 
       return () => {
@@ -315,83 +361,169 @@ export default function Home() {
     }
 
     loadDashboard();
-    connectStream(
-      API_ENDPOINTS.TIKTOK_CACHE_STREAM,
-      tiktokEventSourceRef,
-      tiktokReconnectTimeoutRef,
-      setTiktokUsers,
-      "TikTok"
-    );
-    connectStream(
-      API_ENDPOINTS.YOUTUBE_CACHE_STREAM,
-      youtubeEventSourceRef,
-      youtubeReconnectTimeoutRef,
-      setYoutubeUsers,
-      "YouTube"
-    );
+    connectUnifiedStream();
 
-    const tiktokTimeout = tiktokReconnectTimeoutRef;
-    const youtubeTimeout = youtubeReconnectTimeoutRef;
-    const tiktokSource = tiktokEventSourceRef;
-    const youtubeSource = youtubeEventSourceRef;
+    const unifiedTimeout = unifiedReconnectTimeoutRef;
+    const unifiedSource = unifiedEventSourceRef;
 
     // Cleanup: cerrar SSE al desmontar
     return () => {
-      if (tiktokTimeout.current !== null) {
-        window.clearTimeout(tiktokTimeout.current);
+      if (unifiedTimeout.current !== null) {
+        window.clearTimeout(unifiedTimeout.current);
       }
-      if (youtubeTimeout.current !== null) {
-        window.clearTimeout(youtubeTimeout.current);
-      }
-      if (tiktokSource.current) {
-        tiktokSource.current.close();
-      }
-      if (youtubeSource.current) {
-        youtubeSource.current.close();
+      if (unifiedSource.current) {
+        unifiedSource.current.close();
       }
     };
-  }, [connectStream, evolveMockUsers, loadDashboard]);
+  }, [connectUnifiedStream, evolveMockUsers, loadDashboard]);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_ENDPOINTS.HISTORY_AVERAGES}?windowMinutes=60`);
+      if (!res.ok) throw new Error("Error fetching history averages");
+      const json = await res.json();
+      
+      if (json.success && json.data && Array.isArray(json.data.data)) {
+        const historyData = json.data.data;
+        const pointsByMinute: Record<string, ChartPoint & { _timestamp: number }> = {};
+        const channelsByPlatform: Record<string, Set<string>> = {
+          youtube: new Set(),
+          tiktok: new Set(),
+          facebook: new Set(),
+        };
+        
+        historyData.forEach((item: any) => {
+          const minISO = item.minute;
+          const timestamp = new Date(minISO).getTime();
+          const displayTime = new Date(minISO).toLocaleTimeString("es-BO", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          });
+          
+          if (!pointsByMinute[minISO]) {
+            pointsByMinute[minISO] = { 
+              time: displayTime, 
+              tiktok: 0, 
+              youtube: 0, 
+              facebook: 0,
+              _timestamp: timestamp
+            };
+          }
+          
+          const plat: string = item.platform ?? "";
+          if (plat && channelsByPlatform[plat]) {
+            (item.channelNames as string[] ?? []).forEach((ch: string) => channelsByPlatform[plat].add(ch));
+          }
+
+          if (plat === "tiktok") {
+            pointsByMinute[minISO].tiktok += item.averageViewCount;
+          } else if (plat === "youtube") {
+            pointsByMinute[minISO].youtube += item.averageViewCount;
+          } else if (plat === "facebook") {
+            pointsByMinute[minISO].facebook += item.averageViewCount;
+          }
+        });
+        
+        const sortedPoints = Object.values(pointsByMinute)
+          .sort((a, b) => a._timestamp - b._timestamp)
+          .map(({ _timestamp, ...rest }) => rest);
+          
+        setChartHistory(sortedPoints);
+        setChartChannelNames({
+          youtube: Array.from(channelsByPlatform.youtube),
+          tiktok: Array.from(channelsByPlatform.tiktok),
+          facebook: Array.from(channelsByPlatform.facebook),
+        });
+      }
+    } catch (err) {
+      console.error("Error cargando historiograma:", err);
+    }
+  }, []);
 
   useEffect(() => {
-    const tiktokTotal = tiktokUsers.reduce((sum, user) => sum + user.viewerCount, 0);
-    const youtubeTotal = youtubeUsers.reduce((sum, user) => sum + user.viewerCount, 0);
-
-    const nextPoint: ChartPoint = {
-      time: getSnapshotTime(),
-      tiktok: tiktokTotal,
-      youtube: youtubeTotal,
-    };
-
-    setChartHistory((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.tiktok === nextPoint.tiktok && last.youtube === nextPoint.youtube) {
-        return prev;
+    if (USE_MOCK_DATA) {
+      // Generate some fake history points for demo mode
+      const mockHistory: ChartPoint[] = [];
+      const now = Date.now();
+      for (let i = 20; i >= 0; i--) {
+        const time = new Date(now - i * 3 * 60000).toLocaleTimeString("es-BO", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        });
+        mockHistory.push({
+          time,
+          tiktok: Math.floor(5000 + Math.random() * 2000),
+          youtube: Math.floor(7000 + Math.random() * 3000),
+          facebook: Math.floor(4000 + Math.random() * 1500),
+        });
       }
+      setChartHistory(mockHistory);
+      setChartChannelNames({
+        youtube: ["ElDeberTV", "BoliviaLiveNews"],
+        tiktok: ["deber_tv_bo", "noticias.scz"],
+        facebook: ["ElDeberNoticias"],
+      });
+      return;
+    }
 
-      return [...prev, nextPoint].slice(-16);
-    });
-  }, [tiktokUsers, youtubeUsers]);
+    // Fetch initial history immediately
+    fetchHistory();
+    
+    // Refresh history from API every 1 minute
+    const interval = window.setInterval(fetchHistory, 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [fetchHistory]);
 
   const allStreams: StreamCardUser[] = [
     ...tiktokUsers.map((user) => ({ ...user, platform: "TikTok" as const })),
     ...youtubeUsers.map((user) => ({ ...user, platform: "YouTube" as const })),
+    ...facebookUsers.map((user) => ({ ...user, platform: "Facebook" as const })),
   ].sort((a, b) => b.viewerCount - a.viewerCount);
 
   const sortedYoutubeStreams = [...youtubeUsers].sort((a, b) => b.viewerCount - a.viewerCount);
   const sortedTiktokStreams = [...tiktokUsers].sort((a, b) => b.viewerCount - a.viewerCount);
+  const sortedFacebookStreams = [...facebookUsers].sort((a, b) => b.viewerCount - a.viewerCount);
+
+  // Combine all active channel names from across the platforms into a single global title
+  const activeChannelNamesGlobal = Array.from(
+    new Set([
+      ...(chartChannelNames.youtube ?? []),
+      ...(chartChannelNames.tiktok ?? []),
+      ...(chartChannelNames.facebook ?? []),
+    ])
+  );
+  const globalTitle = activeChannelNamesGlobal.length > 0 ? activeChannelNamesGlobal.join(", ") : "Visualizador de Transmisiones";
 
   const topViewerCount = allStreams[0]?.viewerCount ?? 0;
   const totalLiveViewers = allStreams.reduce((sum, stream) => sum + stream.viewerCount, 0);
   const latestSnapshot = chartHistory[chartHistory.length - 1]?.time ?? getSnapshotTime();
+  const chartPlatforms: PlatformName[] = ["YouTube", "TikTok", "Facebook"];
+
+  const platformSummaries = {
+    YouTube: {
+      users: sortedYoutubeStreams,
+      total: youtubeUsers.reduce((sum, user) => sum + user.viewerCount, 0),
+    },
+    TikTok: {
+      users: sortedTiktokStreams,
+      total: tiktokUsers.reduce((sum, user) => sum + user.viewerCount, 0),
+    },
+    Facebook: {
+      users: sortedFacebookStreams,
+      total: facebookUsers.reduce((sum, user) => sum + user.viewerCount, 0),
+    },
+  } satisfies Record<PlatformName, { users: User[]; total: number }>;
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#f8fbf9_0%,#eef3ef_52%,#e4ece7_100%)] py-6 md:py-10">
-      <div className="mx-auto grid w-full max-w-[1360px] grid-cols-1 gap-6 px-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:px-8">
+      <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-6 px-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:px-8">
         <aside className="hidden lg:block">
           <div className="sticky top-6 rounded-2xl bg-white/85 p-5 shadow-[0_18px_38px_-28px_rgba(31,93,58,0.7)] backdrop-blur">
             <p className="font-sans text-xs uppercase tracking-[0.2em] text-gray-500">Monitoreo</p>
             <h2 className="mt-3 border-l-4 border-primary pl-3 font-serif text-2xl leading-tight text-primary">
-              EL DEBER
+              {globalTitle}
             </h2>
             <p className="mt-4 font-sans text-sm text-gray-600">Cobertura continua de transmisiones en vivo.</p>
             <div className="mt-6 space-y-3 font-sans text-sm text-gray-700">
@@ -418,7 +550,7 @@ export default function Home() {
                   Portada en Vivo
                 </h1>
                 <p className="mt-3 font-sans text-sm text-gray-600">
-                  EL DEBER - {latestSnapshot} - {totalLiveViewers.toLocaleString("es-ES")} views en vivo
+                  {globalTitle} - {latestSnapshot} - {totalLiveViewers.toLocaleString("es-ES")} views en vivo
                 </p>
               </div>
               <div className="rounded-full bg-[#ecf4ef] px-4 py-2 font-sans text-xs font-semibold uppercase tracking-wider text-primary">
@@ -433,85 +565,116 @@ export default function Home() {
             </div>
           )}
 
-          <article className="rounded-2xl bg-white p-5 shadow-[0_22px_45px_-32px_rgba(31,93,58,0.85)] md:p-6">
-            <div className="mb-4 flex items-end justify-between gap-4">
-              <div>
-                <p className="font-sans text-xs uppercase tracking-[0.2em] text-gray-500">Historiograma</p>
-                <h2 className="mt-2 font-serif text-2xl text-primary md:text-3xl">Evolucion de viewers en vivo</h2>
-              </div>
-              <p className="font-sans text-sm text-gray-500">Ultima toma: {latestSnapshot}</p>
-            </div>
+          <div className="space-y-6">
+            {chartPlatforms.map((platformName) => {
+              const platform = PLATFORM_META[platformName];
+              const summary = platformSummaries[platformName];
 
-            {dashboardLoading ? (
-              <div className="h-[300px] animate-pulse rounded-xl bg-gradient-to-b from-[#f4f7f5] to-[#ebf0ed]" />
-            ) : chartHistory.length > 0 ? (
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartHistory} margin={{ top: 8, right: 20, left: 4, bottom: 8 }}>
-                    <CartesianGrid stroke="#d6dfd9" strokeDasharray="4 4" />
-                    <XAxis
-                      dataKey="time"
-                      tick={{ fill: "#5f7066", fontSize: 12 }}
-                      axisLine={{ stroke: "#c8d4cd" }}
-                      tickLine={{ stroke: "#c8d4cd" }}
-                    />
-                    <YAxis
-                      tickFormatter={(value) => formatShortViewers(Number(value))}
-                      tick={{ fill: "#5f7066", fontSize: 12 }}
-                      axisLine={{ stroke: "#c8d4cd" }}
-                      tickLine={{ stroke: "#c8d4cd" }}
-                    />
-                    <Tooltip
-                      cursor={{ stroke: "#1f5d3a", strokeDasharray: "2 4" }}
-                      contentStyle={{
-                        backgroundColor: "#ffffff",
-                        border: "1px solid #d7e2db",
-                        borderRadius: "12px",
-                      }}
-                      labelStyle={{ color: "#1f5d3a", fontWeight: 600 }}
-                      formatter={(value, name) => {
-                        const numericValue = Number(value ?? 0);
-                        const platformLabel = name === "tiktok" ? "TikTok" : "YouTube";
-                        return [`${numericValue.toLocaleString("es-ES")} views`, platformLabel];
-                      }}
-                      labelFormatter={(label, payload) => {
-                        const sample = payload && payload.length ? payload[0].payload : null;
-                        const total = sample ? sample.tiktok + sample.youtube : 0;
-                        return `${label} - ${total.toLocaleString("es-ES")} views`;
-                      }}
-                    />
-                    <Legend
-                      wrapperStyle={{ fontSize: "13px", color: "#4a5b51" }}
-                      formatter={(value: string) => (value === "tiktok" ? "TikTok" : "YouTube")}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="tiktok"
-                      stroke="#1f5d3a"
-                      strokeWidth={3}
-                      dot={{ r: 3 }}
-                      activeDot={{ r: 6 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="youtube"
-                      stroke="#b91c1c"
-                      strokeWidth={3}
-                      dot={{ r: 3 }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-[#c8d6ce] bg-[#f8fbf9] px-4 text-center">
-                <p className="font-serif text-2xl text-primary">Esperando datos de viewers</p>
-                <p className="mt-2 font-sans text-sm text-gray-600">
-                  El historiograma aparecera automaticamente cuando lleguen transmisiones en vivo.
-                </p>
-              </div>
-            )}
-          </article>
+              return (
+                <article
+                  key={platformName}
+                  className="rounded-2xl bg-white p-5 shadow-[0_22px_45px_-32px_rgba(31,93,58,0.85)] md:p-6"
+                >
+                  <div className="mb-4 flex items-end justify-between gap-4">
+                    <div>
+                      <p className="font-sans text-xs uppercase tracking-[0.2em] text-gray-500">Historiograma</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <span
+                          className="rounded-full px-3 py-1 font-sans text-xs font-semibold uppercase tracking-wider"
+                          style={{ backgroundColor: platform.tint, color: platform.accent }}
+                        >
+                          {platform.badge}
+                        </span>
+                        <h2 className="font-serif text-2xl text-primary md:text-3xl">{platformName}</h2>
+                      </div>
+                      {/* Channel names from API */}
+                      {(() => {
+                        const channels = chartChannelNames[platform.chartKey] ?? [];
+                        if (channels.length === 0) return null;
+                        return (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {channels.map((ch) => (
+                              <span
+                                key={ch}
+                                className="rounded-full border px-2 py-0.5 font-sans text-[11px] font-medium"
+                                style={{ borderColor: platform.accent + "44", color: platform.accent, backgroundColor: platform.tint }}
+                              >
+                                {ch}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div className="text-right">
+                      <p className="font-sans text-sm text-gray-500">Ultima toma: {latestSnapshot}</p>
+                      <p className="mt-1 font-sans text-xs uppercase tracking-[0.18em] text-gray-400">
+                        {summary.total.toLocaleString("es-ES")} viewers totales
+                      </p>
+                    </div>
+                  </div>
+
+                  {dashboardLoading ? (
+                    <div className="h-[230px] animate-pulse rounded-xl bg-gradient-to-b from-[#f4f7f5] to-[#ebf0ed]" />
+                  ) : chartHistory.length > 0 ? (
+                    <div className="h-[230px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartHistory} margin={{ top: 8, right: 20, left: 4, bottom: 8 }}>
+                          <CartesianGrid stroke="#d6dfd9" strokeDasharray="4 4" />
+                          <XAxis
+                            dataKey="time"
+                            tick={{ fill: "#5f7066", fontSize: 12 }}
+                            axisLine={{ stroke: "#c8d4cd" }}
+                            tickLine={{ stroke: "#c8d4cd" }}
+                          />
+                          <YAxis
+                            tickFormatter={(value) => formatShortViewers(Number(value))}
+                            tick={{ fill: "#5f7066", fontSize: 12 }}
+                            axisLine={{ stroke: "#c8d4cd" }}
+                            tickLine={{ stroke: "#c8d4cd" }}
+                          />
+                          <Tooltip
+                            cursor={{ stroke: platform.accent, strokeDasharray: "2 4" }}
+                            contentStyle={{
+                              backgroundColor: "#ffffff",
+                              border: "1px solid #d7e2db",
+                              borderRadius: "12px",
+                            }}
+                            labelStyle={{ color: platform.accent, fontWeight: 600 }}
+                            formatter={(value) => {
+                              const channels = chartChannelNames[platform.chartKey] ?? [];
+                              const labelName = channels.length > 0 ? channels.join(", ") : platformName;
+                              return [`${Number(value ?? 0).toLocaleString("es-ES")} views`, labelName];
+                            }}
+                            labelFormatter={(label, payload) => {
+                              const sample = payload && payload.length ? payload[0].payload : null;
+                              const total = sample ? sample[platform.chartKey] : 0;
+                              return `${label} - ${Number(total ?? 0).toLocaleString("es-ES")} views`;
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey={platform.chartKey}
+                            stroke={platform.accent}
+                            strokeWidth={3}
+                            dot={{ r: 3 }}
+                            activeDot={{ r: 6 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="flex h-[230px] flex-col items-center justify-center rounded-xl border border-dashed border-[#c8d6ce] bg-[#f8fbf9] px-4 text-center">
+                      <p className="font-serif text-2xl text-primary">Esperando datos de {platformName}</p>
+                      <p className="mt-2 font-sans text-sm text-gray-600">
+                        El historiograma aparecera automaticamente cuando lleguen transmisiones en vivo.
+                      </p>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
 
           <section className="rounded-2xl bg-white p-5 shadow-[0_22px_45px_-32px_rgba(31,93,58,0.85)] md:p-6">
             <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
@@ -532,7 +695,7 @@ export default function Home() {
                 ))}
               </div>
             ) : allStreams.length > 0 ? (
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:gap-5">
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-3 xl:gap-5">
                 <div className="rounded-xl border border-[#e3ebe5] bg-[#fcfdfc] p-4 md:p-5">
                   <div className="mb-4 flex items-center justify-between rounded-xl bg-[#f6faf7] px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -562,6 +725,39 @@ export default function Home() {
                   ) : (
                     <div className="rounded-xl border border-dashed border-[#d8e2dc] bg-[#fafcfa] px-4 py-8 text-center">
                       <p className="font-sans text-sm text-gray-500">No hay transmisiones activas en YouTube.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-[#e3ebe5] bg-[#fcfdfc] p-4 md:p-5">
+                  <div className="mb-4 flex items-center justify-between rounded-xl bg-[#f6faf7] px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e9f0ff] text-xs font-bold text-[#1d4ed8]">
+                        FB
+                      </div>
+                      <h3 className="font-serif text-xl text-primary md:text-2xl">Facebook</h3>
+                    </div>
+                    <p className="font-sans text-xs uppercase tracking-widest text-gray-500">
+                      {sortedFacebookStreams.length} en vivo
+                    </p>
+                  </div>
+
+                  {sortedFacebookStreams.length > 0 ? (
+                    <div className="space-y-3">
+                      {sortedFacebookStreams.map((user) => (
+                        <UserCard
+                          key={`facebook-${user.username}`}
+                          username={user.username}
+                          viewerCount={user.viewerCount}
+                          platform="Facebook"
+                          isTrending={user.viewerCount === topViewerCount && topViewerCount > 0}
+                          metadata={`Actualizado ${latestSnapshot}`}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-[#d8e2dc] bg-[#fafcfa] px-4 py-8 text-center">
+                      <p className="font-sans text-sm text-gray-500">No hay transmisiones activas en Facebook.</p>
                     </div>
                   )}
                 </div>

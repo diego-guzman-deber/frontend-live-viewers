@@ -1,7 +1,7 @@
 interface UserCardProps {
   username: string;
   viewerCount: number;
-  platform: "TikTok" | "YouTube";
+  platform: "TikTok" | "YouTube" | "Facebook";
   isTrending?: boolean;
   metadata?: string;
 }
@@ -14,6 +14,7 @@ export default function UserCard({
   metadata,
 }: UserCardProps) {
   const isTikTok = platform === "TikTok";
+  const isFacebook = platform === "Facebook";
 
   return (
     <div
@@ -28,7 +29,11 @@ export default function UserCard({
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span
               className={`rounded-full px-3 py-1 font-sans text-xs font-semibold uppercase tracking-wider ${
-                isTikTok ? "bg-[#ecf4ef] text-primary" : "bg-[#fdeced] text-[#b91c1c]"
+                isTikTok
+                  ? "bg-[#ecf4ef] text-primary"
+                  : isFacebook
+                  ? "bg-[#e9f0ff] text-[#1d4ed8]"
+                  : "bg-[#fdeced] text-[#b91c1c]"
               }`}
             >
               {platform}
@@ -68,7 +73,7 @@ export default function UserCard({
       <div className="mt-4 h-[2px] w-full overflow-hidden rounded-full bg-[#edf2ee]">
         <div
           className={`h-full w-full origin-left scale-x-100 transition-transform duration-700 group-hover:scale-x-95 ${
-            isTikTok ? "bg-primary/70" : "bg-[#b91c1c]/70"
+            isTikTok ? "bg-primary/70" : isFacebook ? "bg-[#1d4ed8]/70" : "bg-[#b91c1c]/70"
           }`}
         />
       </div>
