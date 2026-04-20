@@ -1,5 +1,5 @@
 // API Configuration
-export const API_BASE_URL = "http://localhost:3000/api/v1";
+export const API_BASE_URL = "https://live-views.vercel.app/";
 
 export const API_ENDPOINTS = {
   TIKTOK_CACHE: `${API_BASE_URL}/viewers-cache/tiktok`,
