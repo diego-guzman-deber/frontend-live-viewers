@@ -3,41 +3,31 @@
 # ──────────────────────────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy dependency manifests first (layer cache optimization)
+# Instalar dependencias con lockfile exacto
 COPY package.json package-lock.json ./
-
-# Install all dependencies (including devDeps needed for build)
 RUN npm ci
 
-# Copy source code
+# Copiar fuente y compilar
 COPY . .
-
-# Build the production bundle
 RUN npm run build
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Stage 2: Serve with Nginx
+# Stage 2: Serve con Nginx
 # ──────────────────────────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runner
 
-# Remove default nginx static assets
+# Limpiar contenido por defecto
 RUN rm -rf /usr/share/nginx/html/*
 
-# Copy built assets from builder stage
+# Copiar el build
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy custom nginx config for SPA routing support
+# Copiar config de nginx (SPA support)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port 80
+# Dokploy/Traefik enruta al puerto 80
 EXPOSE 80
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost/ || exit 1
-
-# Start nginx
 CMD ["nginx", "-g", "daemon off;"]
