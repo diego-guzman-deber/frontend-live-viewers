@@ -61,6 +61,7 @@ const PLATFORM_META = {
 
 const SERIES_DASH_PATTERNS = ["0", "7 4", "3 3", "10 4"];
 const MAX_CHART_POINTS = 14;
+const RESET_HISTORY_PASSWORD = "eldeber2026";
 const BRAND_CHANNEL_COLORS = {
   redUno: "#f97316",
   unitel: "#dc2626",
@@ -161,6 +162,7 @@ export default function Home() {
   });
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const unifiedEventSourceRef = useRef<EventSource | null>(null);
   const unifiedReconnectTimeoutRef = useRef<number | null>(null);
 
@@ -489,6 +491,42 @@ export default function Home() {
     });
   }, []);
 
+  const clearHistory = useCallback(() => {
+    const password = window.prompt("Ingresa la contraseña para limpiar el histórico");
+
+    if (password === null) {
+      return;
+    }
+
+    if (password !== RESET_HISTORY_PASSWORD) {
+      setAccessMessage("Contraseña incorrecta. No se limpió el histórico.");
+      return;
+    }
+
+    setAccessMessage("Histórico limpio. El panel queda vacío hasta que entren nuevos datos.");
+    setError(null);
+    setDashboardLoading(false);
+    setTiktokUsers([]);
+    setYoutubeUsers([]);
+    setFacebookUsers([]);
+    setChartHistoryByPlatform({
+      youtube: [],
+      tiktok: [],
+      facebook: [],
+    });
+    setChartSeriesByPlatform({
+      youtube: [],
+      tiktok: [],
+      facebook: [],
+    });
+    setChartChannelNames({
+      youtube: [],
+      tiktok: [],
+      facebook: [],
+    });
+    setLatestHistoryTimestamp(null);
+  }, []);
+
   useEffect(() => {
     if (USE_MOCK_DATA) {
       // Generate fake per-platform history points for demo mode
@@ -617,6 +655,7 @@ export default function Home() {
   const globalTitle = activeChannelNamesGlobal.length > 0 ? activeChannelNamesGlobal.join(", ") : "Visualizador de Transmisiones";
 
   const totalLiveViewers = allStreams.reduce((sum, stream) => sum + stream.viewerCount, 0);
+  const totalLiveStreams = allStreams.filter((s) => s.isLive !== false).length;
   const latestSnapshot =
     latestHistoryTimestamp !== null
       ? buildDisplayTime(new Date(latestHistoryTimestamp).toISOString())
@@ -650,11 +689,37 @@ export default function Home() {
                 Portada en Vivo
               </h1>
               <p className="mt-2 font-sans text-sm text-gray-600">
-                {globalTitle} - {latestSnapshot} - {totalLiveViewers.toLocaleString("es-ES")} views en vivo
+                {globalTitle} - {latestSnapshot}
               </p>
             </div>
-            <div className="rounded-full bg-[#ecf4ef] px-4 py-2 font-sans text-xs font-semibold uppercase tracking-wider text-primary">
-              Actualizacion continua
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={clearHistory}
+                className="rounded-full border border-[#d1ddd5] bg-white px-4 py-2 font-sans text-xs font-semibold uppercase tracking-wider text-primary transition hover:border-primary hover:bg-[#f4f8f5]"
+              >
+                Limpiar histórico
+              </button>
+              {/* Badge: transmisiones en vivo */}
+              <div className="flex items-center gap-2 rounded-full bg-red-50 px-4 py-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+                </span>
+                <span className="font-sans text-sm font-bold text-red-700">
+                  {dashboardLoading ? "—" : totalLiveStreams} EN VIVO
+                </span>
+              </div>
+              {/* Badge: total viewers */}
+              <div className="rounded-full bg-[#ecf4ef] px-4 py-2">
+                <span className="font-sans text-sm font-bold text-primary">
+                  {totalLiveViewers.toLocaleString("es-ES")}
+                </span>
+                <span className="ml-1 font-sans text-xs uppercase tracking-wider text-primary opacity-70">viewers</span>
+              </div>
+              <div className="rounded-full bg-[#ecf4ef] px-4 py-2 font-sans text-xs font-semibold uppercase tracking-wider text-primary">
+                Actualizacion continua
+              </div>
             </div>
           </div>
         </header>
@@ -662,6 +727,12 @@ export default function Home() {
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 font-sans text-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {accessMessage && (
+          <div className="rounded-xl border border-[#cfe1d6] bg-[#f2f8f4] px-4 py-3 font-sans text-sm text-primary">
+            {accessMessage}
           </div>
         )}
 
@@ -683,6 +754,30 @@ export default function Home() {
                       <p className="mt-1 font-sans text-xs uppercase tracking-[0.18em] text-gray-400">
                         {totalLiveViewers.toLocaleString("es-ES")} viewers totales
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Stat destacado: número de transmisiones en vivo */}
+                  <div className="mb-4 flex items-center gap-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-3 w-3">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                        <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600" />
+                      </span>
+                    </div>
+                    <div>
+                      <p className="font-sans text-2xl font-bold leading-none text-red-700">
+                        {dashboardLoading ? "—" : totalLiveStreams}
+                      </p>
+                      <p className="mt-0.5 font-sans text-[11px] uppercase tracking-[0.14em] text-red-500">
+                        {totalLiveStreams === 1 ? "transmisión en vivo" : "transmisiones en vivo"}
+                      </p>
+                    </div>
+                    <div className="ml-auto text-right">
+                      <p className="font-sans text-xl font-bold leading-none text-primary">
+                        {totalLiveViewers.toLocaleString("es-ES")}
+                      </p>
+                      <p className="mt-0.5 font-sans text-[11px] uppercase tracking-[0.14em] text-gray-500">viewers totales</p>
                     </div>
                   </div>
 
