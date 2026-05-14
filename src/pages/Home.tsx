@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_ENDPOINTS } from "../config";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import DashboardHeader from "../components/DashboardHeader";
+import AlertMessages from "../components/AlertMessages";
+import StatsOverview from "../components/StatsOverview";
+import PlatformChart from "../components/PlatformChart";
 
 interface User {
   username: string;
@@ -35,7 +30,7 @@ interface StreamCardUser extends User {
 
 const USE_MOCK_DATA = false;
 
-const PLATFORM_META = {
+export const PLATFORM_META = {
   YouTube: {
     chartKey: "youtube" as const,
     accent: "#b91c1c",
@@ -119,12 +114,6 @@ const getChannelLineColor = (channelName: string, fallbackColor: string) => {
 
   return fallbackColor;
 };
-
-const formatShortViewers = (value: number) =>
-  new Intl.NumberFormat("es-BO", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
 
 const getSnapshotTime = () =>
   new Date().toLocaleTimeString("es-BO", {
@@ -676,277 +665,63 @@ export default function Home() {
     },
   } satisfies Record<PlatformName, { users: User[]; total: number }>;
 
-  const quadrantOrder: Array<PlatformName | "Imagenes"> = ["YouTube", "Imagenes", "TikTok", "Facebook"];
-
   return (
     <main className="bg-[radial-gradient(circle_at_top,#f8fbf9_0%,#eef3ef_52%,#e4ece7_100%)] px-4 py-4 md:px-6 md:py-6 lg:h-screen lg:overflow-hidden lg:px-8 lg:py-8">
       <div className="mx-auto flex h-full w-full max-w-[1650px] flex-col gap-4 md:gap-5 lg:gap-6">
-        <header className="rounded-2xl bg-white px-5 py-5 shadow-[0_20px_40px_-30px_rgba(31,93,58,0.8)] md:px-7 md:py-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="font-sans text-xs uppercase tracking-[0.24em] text-gray-500">Dashboard de monitoreo</p>
-              <h1 className="mt-2 border-l-4 border-primary pl-4 font-serif text-3xl text-primary md:text-4xl">
-                Portada en Vivo
-              </h1>
-              <p className="mt-2 font-sans text-sm text-gray-600">
-                {globalTitle} - {latestSnapshot}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={clearHistory}
-                className="rounded-full border border-[#d1ddd5] bg-white px-4 py-2 font-sans text-xs font-semibold uppercase tracking-wider text-primary transition hover:border-primary hover:bg-[#f4f8f5]"
-              >
-                Limpiar histórico
-              </button>
-              {/* Badge: transmisiones en vivo */}
-              <div className="flex items-center gap-2 rounded-full bg-red-50 px-4 py-2">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
-                </span>
-                <span className="font-sans text-sm font-bold text-red-700">
-                  {dashboardLoading ? "—" : totalLiveStreams} EN VIVO
-                </span>
-              </div>
-              {/* Badge: total viewers */}
-              <div className="rounded-full bg-[#ecf4ef] px-4 py-2">
-                <span className="font-sans text-sm font-bold text-primary">
-                  {totalLiveViewers.toLocaleString("es-ES")}
-                </span>
-                <span className="ml-1 font-sans text-xs uppercase tracking-wider text-primary opacity-70">viewers</span>
-              </div>
-              <div className="rounded-full bg-[#ecf4ef] px-4 py-2 font-sans text-xs font-semibold uppercase tracking-wider text-primary">
-                Actualizacion continua
-              </div>
-            </div>
-          </div>
-        </header>
+        <DashboardHeader
+          globalTitle={globalTitle}
+          latestSnapshot={latestSnapshot}
+          totalLiveStreams={totalLiveStreams}
+          totalLiveViewers={totalLiveViewers}
+          dashboardLoading={dashboardLoading}
+          onClearHistory={clearHistory}
+        />
 
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 font-sans text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        {accessMessage && (
-          <div className="rounded-xl border border-[#cfe1d6] bg-[#f2f8f4] px-4 py-3 font-sans text-sm text-primary">
-            {accessMessage}
-          </div>
-        )}
+        <AlertMessages error={error} accessMessage={accessMessage} />
 
         <section className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2 md:gap-5 lg:overflow-hidden">
-          {quadrantOrder.map((quadrant) => {
-            if (quadrant === "Imagenes") {
-              return (
-                <article
-                  key="Imagenes"
-                  className="flex min-h-[320px] flex-col rounded-2xl bg-white p-5 shadow-[0_22px_45px_-32px_rgba(31,93,58,0.85)] md:p-6"
-                >
-                  <div className="mb-4 flex items-end justify-between gap-4">
-                    <div>
-                      <p className="font-sans text-xs uppercase tracking-[0.2em] text-gray-500">Imagen general</p>
-                      <h2 className="mt-2 font-serif text-2xl text-primary md:text-3xl">Views en vivo</h2>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-sans text-sm text-gray-500">Ultima toma: {latestSnapshot}</p>
-                      <p className="mt-1 font-sans text-xs uppercase tracking-[0.18em] text-gray-400">
-                        {totalLiveViewers.toLocaleString("es-ES")} viewers totales
-                      </p>
-                    </div>
-                  </div>
+          <StatsOverview
+            latestSnapshot={latestSnapshot}
+            totalLiveViewers={totalLiveViewers}
+            totalLiveStreams={totalLiveStreams}
+            dashboardLoading={dashboardLoading}
+            allStreams={allStreams}
+            platformTotals={{
+              YouTube: platformSummaries.YouTube.total,
+              TikTok: platformSummaries.TikTok.total,
+              Facebook: platformSummaries.Facebook.total,
+            }}
+          />
 
-                  {/* Stat destacado: número de transmisiones en vivo */}
-                  <div className="mb-4 flex items-center gap-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-3 w-3">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                        <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600" />
-                      </span>
-                    </div>
-                    <div>
-                      <p className="font-sans text-2xl font-bold leading-none text-red-700">
-                        {dashboardLoading ? "—" : totalLiveStreams}
-                      </p>
-                      <p className="mt-0.5 font-sans text-[11px] uppercase tracking-[0.14em] text-red-500">
-                        {totalLiveStreams === 1 ? "transmisión en vivo" : "transmisiones en vivo"}
-                      </p>
-                    </div>
-                    <div className="ml-auto text-right">
-                      <p className="font-sans text-xl font-bold leading-none text-primary">
-                        {totalLiveViewers.toLocaleString("es-ES")}
-                      </p>
-                      <p className="mt-0.5 font-sans text-[11px] uppercase tracking-[0.14em] text-gray-500">viewers totales</p>
-                    </div>
-                  </div>
+          <PlatformChart
+            platformName="YouTube"
+            latestSnapshot={latestSnapshot}
+            total={platformSummaries.YouTube.total}
+            history={chartHistoryByPlatform.youtube ?? []}
+            series={chartSeriesByPlatform.youtube ?? []}
+            channels={chartChannelNames.youtube ?? []}
+            dashboardLoading={dashboardLoading}
+          />
 
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-                    {(["YouTube", "TikTok", "Facebook"] as PlatformName[]).map((platformName) => {
-                      const platform = PLATFORM_META[platformName];
-                      const summary = platformSummaries[platformName];
+          <PlatformChart
+            platformName="TikTok"
+            latestSnapshot={latestSnapshot}
+            total={platformSummaries.TikTok.total}
+            history={chartHistoryByPlatform.tiktok ?? []}
+            series={chartSeriesByPlatform.tiktok ?? []}
+            channels={chartChannelNames.tiktok ?? []}
+            dashboardLoading={dashboardLoading}
+          />
 
-                      return (
-                        <div key={platformName} className="rounded-xl border border-[#d9e2dc] bg-[#f8fbf9] p-3">
-                          <p className="font-sans text-[11px] uppercase tracking-[0.14em] text-gray-500">{platformName}</p>
-                          <p className="mt-2 font-sans text-2xl font-bold leading-none" style={{ color: platform.accent }}>
-                            {summary.total.toLocaleString("es-ES")}
-                          </p>
-                          <p className="mt-1 font-sans text-xs text-gray-500">views</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-4 flex-1 overflow-y-auto rounded-xl border border-[#d9e2dc] bg-[#fcfdfc] p-3">
-                    <p className="mb-2 font-sans text-[11px] uppercase tracking-[0.16em] text-gray-500">Canales activos</p>
-                    {allStreams.length > 0 ? (
-                      <div className="space-y-2">
-                        {allStreams.slice(0, 8).map((stream) => {
-                          const color =
-                            stream.platform === "YouTube"
-                              ? "#b91c1c"
-                              : stream.platform === "TikTok"
-                              ? "#1f5d3a"
-                              : "#1d4ed8";
-
-                          return (
-                            <div key={`${stream.platform}-${stream.username}`} className="rounded-lg bg-white px-3 py-2 shadow-sm">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="truncate font-sans text-sm font-medium text-primary">{stream.username}</p>
-                                <p className="font-sans text-sm font-semibold" style={{ color }}>
-                                  {stream.viewerCount.toLocaleString("es-ES")}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="flex h-full items-center justify-center">
-                        <p className="font-sans text-sm text-gray-500">Sin transmisiones activas.</p>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              );
-            }
-
-            const platformName = quadrant as PlatformName;
-            const platform = PLATFORM_META[platformName];
-            const summary = platformSummaries[platformName];
-            const platformHistory = chartHistoryByPlatform[platform.chartKey] ?? [];
-            const platformSeries = chartSeriesByPlatform[platform.chartKey] ?? [];
-            const seriesNameByKey = new Map(platformSeries.map((series) => [series.key, series.channel]));
-
-            return (
-              <article
-                key={platformName}
-                className="flex min-h-[320px] flex-col rounded-2xl bg-white p-5 shadow-[0_22px_45px_-32px_rgba(31,93,58,0.85)] md:p-6"
-              >
-                <div className="mb-3 flex items-end justify-between gap-4">
-                  <div>
-                    <p className="font-sans text-xs uppercase tracking-[0.2em] text-gray-500">Historiograma</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-3">
-                      <span
-                        className="rounded-full px-3 py-1 font-sans text-xs font-semibold uppercase tracking-wider"
-                        style={{ backgroundColor: platform.tint, color: platform.accent }}
-                      >
-                        {platform.badge}
-                      </span>
-                      <h2 className="font-serif text-2xl text-primary md:text-3xl">{platformName}</h2>
-                    </div>
-                    {(() => {
-                      const channels = chartChannelNames[platform.chartKey] ?? [];
-                      if (channels.length === 0) return null;
-                      return (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {channels.map((ch) => (
-                            <span
-                              key={ch}
-                              className="rounded-full border px-2 py-0.5 font-sans text-[11px] font-medium"
-                              style={{ borderColor: platform.accent + "44", color: platform.accent, backgroundColor: platform.tint }}
-                            >
-                              {ch}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  <div className="text-right">
-                    <p className="font-sans text-sm text-gray-500">Ultima toma: {latestSnapshot}</p>
-                    <p className="mt-1 font-sans text-xs uppercase tracking-[0.18em] text-gray-400">
-                      {summary.total.toLocaleString("es-ES")} viewers
-                    </p>
-                  </div>
-                </div>
-
-                {dashboardLoading ? (
-                  <div className="h-[240px] animate-pulse rounded-xl bg-gradient-to-b from-[#f4f7f5] to-[#ebf0ed]" />
-                ) : platformHistory.length > 0 && platformSeries.length > 0 ? (
-                  <div className="h-[240px] w-full md:flex-1">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={platformHistory} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                        <CartesianGrid stroke="#d6dfd9" strokeDasharray="4 4" />
-                        <XAxis
-                          dataKey="time"
-                          tick={{ fill: "#5f7066", fontSize: 12 }}
-                          axisLine={{ stroke: "#c8d4cd" }}
-                          tickLine={{ stroke: "#c8d4cd" }}
-                        />
-                        <YAxis
-                          tickFormatter={(value) => formatShortViewers(Number(value))}
-                          tick={{ fill: "#5f7066", fontSize: 12 }}
-                          axisLine={{ stroke: "#c8d4cd" }}
-                          tickLine={{ stroke: "#c8d4cd" }}
-                        />
-                        <Tooltip
-                          cursor={{ stroke: platform.accent, strokeDasharray: "2 4" }}
-                          contentStyle={{
-                            backgroundColor: "#ffffff",
-                            border: "1px solid #d7e2db",
-                            borderRadius: "12px",
-                          }}
-                          labelStyle={{ color: platform.accent, fontWeight: 600 }}
-                          formatter={(value, name) => {
-                            const labelName = seriesNameByKey.get(String(name)) ?? platformName;
-                            return [`${Number(value ?? 0).toLocaleString("es-ES")} views`, labelName];
-                          }}
-                          labelFormatter={(label, payload) => {
-                            const total = (payload ?? []).reduce(
-                              (sum, item) => sum + Number(item?.value ?? 0),
-                              0
-                            );
-                            return `${label} - ${Number(total ?? 0).toLocaleString("es-ES")} views`;
-                          }}
-                        />
-                        {platformSeries.map((series) => (
-                          <Line
-                            key={`${platform.chartKey}-${series.key}`}
-                            type="monotone"
-                            dataKey={series.key}
-                            stroke={series.color}
-                            strokeWidth={2.8}
-                            strokeDasharray={series.dashArray}
-                            dot={{ r: 3 }}
-                            activeDot={{ r: 6 }}
-                          />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="flex h-[240px] flex-col items-center justify-center rounded-xl border border-dashed border-[#c8d6ce] bg-[#f8fbf9] px-4 text-center">
-                    <p className="font-serif text-2xl text-primary">Esperando datos de {platformName}</p>
-                    <p className="mt-2 font-sans text-sm text-gray-600">
-                      El historiograma aparecera automaticamente cuando lleguen transmisiones en vivo.
-                    </p>
-                  </div>
-                )}
-              </article>
-            );
-          })}
+          <PlatformChart
+            platformName="Facebook"
+            latestSnapshot={latestSnapshot}
+            total={platformSummaries.Facebook.total}
+            history={chartHistoryByPlatform.facebook ?? []}
+            series={chartSeriesByPlatform.facebook ?? []}
+            channels={chartChannelNames.facebook ?? []}
+            dashboardLoading={dashboardLoading}
+          />
         </section>
       </div>
     </main>
